@@ -61,6 +61,7 @@ def calculator() -> None:
     dlg.say("You can ask me to do simple calculation operators!")
 
 
+print("Dialog example \n================")
 # runtime
 dlg.render_dialog(calculator, [
     # basic genie stuff, compound skills
@@ -80,6 +81,6 @@ dlg.render_dialog(calculator, [
     "exit_add()"
 ])
 
-
+print("\n\n\nContext + actions in the program\n================")
 # inspect all the different context in the program, and the supported actions in the context.
 dlg.inspect_context(calculator)

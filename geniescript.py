@@ -64,7 +64,8 @@ def make_dialog():
         def wrapped_func(*args, **kwargs):
             enter_func = create_enter_func(wrapped_func)
             exit_func = create_exit_func(wrapped_func)
-            enter_func()
+            if interactive:
+                enter_func()
             new_args = []
             for arg in args:
                 if isinstance(arg, types.GeneratorType):
@@ -113,15 +114,13 @@ def make_dialog():
                             break
                     if result_break:
                         break
-
+                exit_func()
             nonlocal exit_message
             if exit_message is not None:
                 exit_message_temp = exit_message
                 exit_message = None
-                exit_func()
                 yield exit_message_temp
 
-            exit_func()
             return return_value
 
         wrapped_func.original_func = func
@@ -165,9 +164,10 @@ def make_dialog():
             prompt = obj.send(input_cmd)
 
     def inspect_context(function):
-        nonlocal inspection_mode
+        nonlocal inspection_mode, registry, current_function
         inspection_mode = True
         inspect_context_impl(function)
+        inspection_mode = False
 
     def inspect_context_impl(function):
         result = function()
@@ -175,7 +175,7 @@ def make_dialog():
             next(result)
         except StopIteration:
             pass
-        print(f"context: {function.original_func.__qualname__}, available actions: {combined_registry()}")
+        print(f"context: {function.original_func.__qualname__}, available actions: {combined_registry().keys()}")
         for local_action in registry[current_function[-1]].values():
             if local_action.interactive:
                 inspect_context_impl(local_action)
