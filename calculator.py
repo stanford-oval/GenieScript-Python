@@ -57,6 +57,7 @@ def calculator() -> None:
     @dlg.skill
     def end_calculator() -> None:
         dlg.say("Bye.")
+        dlg.exit(None, calculator)
 
     dlg.say("You can ask me to do simple calculation operators!")
 

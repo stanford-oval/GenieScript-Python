@@ -17,10 +17,15 @@ class GenieString(GenieVar, str):
 
 
 def make_dialog():
-    registry: {Optional[Callable]: {}} = {None: {}}
+    def repeat() -> None:
+        say_impl(last_message)
+
+    registry: {Optional[Callable]: {}} = {None: {"repeat": repeat}}
+    local_registry: {Optional[Callable]: {}} = {None: {"repeat": repeat}}
     current_function = [None]
     exit_message = None
     inspection_mode = False
+    last_message = ""
 
     def verify_function(func):
         signature = inspect.signature(func)
@@ -29,13 +34,15 @@ def make_dialog():
                 raise Exception(f"Input parameter {key} of {func.__name__} is not a {GenieVar.__name__}.")
         if signature.return_annotation is not None:
             if not issubclass(signature.return_annotation.__class__, GenieVar.__class__):
-                raise Exception("Return value of {func.__name__} is not a {GenieVar.__name__}.")
+                raise Exception(f"Return value of {func.__name__} is not a {GenieVar.__name__}.")
         return True
 
-    def combined_registry():
+    def combined_registry(func=None):
         combined = {}
         for registry_item in registry.values():
             combined.update(registry_item)
+        if func in local_registry:
+            combined.update(local_registry[func])
         return combined
 
     def create_enter_func(wrapped_func):
@@ -44,6 +51,7 @@ def make_dialog():
             nonlocal current_function
             current_function += [wrapped_func]
             registry[wrapped_func] = {}
+            local_registry[wrapped_func] = {}
         return func
 
     def create_exit_func(wrapped_func):
@@ -51,19 +59,29 @@ def make_dialog():
             if (not inspection_mode) or force:
                 # print(f"exiting {wrapped_func.original_func}")
                 del registry[wrapped_func]
+                del local_registry[wrapped_func]
                 assert current_function[-1] == wrapped_func
                 current_function.pop()
         return func
 
-    def register_action(func, interactive, prompt=None):
-        if prompt is None:
-            prompt = ""
+    def register_prompt(func):
+        current_function[-1].prompt_func = func
+        return func
+
+    def register_action(func, interactive, prompt=None, local=False):
         # print(f"registering {func} under {current_function[-1]}")
         verify_function(func)
 
         def wrapped_func(*args, **kwargs):
             enter_func = create_enter_func(wrapped_func)
             exit_func = create_exit_func(wrapped_func)
+
+            def gen_prompt():
+                if hasattr(wrapped_func, "prompt_func"):
+                    return wrapped_func.prompt_func()
+                else:
+                    return prompt
+
             if interactive:
                 enter_func()
             new_args = []
@@ -83,9 +101,9 @@ def make_dialog():
             return_value = func(*new_args, **new_kwargs)
             if interactive:
                 while True:
-                    yield "prompt", prompt, registry, wrapped_func.original_func.__qualname__
+                    yield "prompt", gen_prompt(), registry, wrapped_func.original_func.__qualname__
                     action = yield
-                    result = eval(action, combined_registry())
+                    result = eval(action, combined_registry(wrapped_func))
 
                     result_start = True
                     result_break = False
@@ -135,7 +153,18 @@ def make_dialog():
     def task(func, prompt=None):
         return register_action(func, True, prompt)
 
+    def expect_task(func, prompt=None):
+        return register_action(func, True, prompt, local=True)
+
+    def expect_skill(func):
+        return register_action(func, False, local=True)
+
     def say(content: str):
+        nonlocal last_message
+        last_message = content
+        say_impl(content)
+
+    def say_impl(content: str):
         if not inspection_mode:
             print(f"agent says: \"{content}\"")
 
@@ -159,6 +188,8 @@ def make_dialog():
         for input_cmd in input_list:
             # print(f"prompt: {prompt}")
             print(f"context: {prompt[3]}")
+            if prompt[1] is not None:
+                print(f"agent_prompt: {prompt[1]}")
             next(obj)
             print(f"user: {input_cmd}")
             prompt = obj.send(input_cmd)
@@ -183,8 +214,11 @@ def make_dialog():
 
     dialog_ctx = type('', (object,), {})()
     dialog_ctx.all_actions = registry
+    dialog_ctx.prompt = register_prompt
     dialog_ctx.skill = skill
     dialog_ctx.task = task
+    dialog_ctx.expect_skill = expect_skill
+    dialog_ctx.expect_task = expect_task
     dialog_ctx.say = say
     dialog_ctx.exit = exit
     dialog_ctx.render_dialog = render_dialog
